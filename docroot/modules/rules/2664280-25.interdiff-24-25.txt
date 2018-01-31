@@ -1,0 +1,63 @@
+diff --git a/src/Plugin/Condition/EntityIsOfBundle.php b/src/Plugin/Condition/EntityIsOfBundle.php
+index 04c49ff..76e8d9e 100644
+--- a/src/Plugin/Condition/EntityIsOfBundle.php
++++ b/src/Plugin/Condition/EntityIsOfBundle.php
+@@ -2,9 +2,9 @@
+ 
+ namespace Drupal\rules\Plugin\Condition;
+ 
++use Drupal\Core\Entity\ContentEntityTypeInterface;
+ use Drupal\Core\Entity\EntityInterface;
+ use Drupal\Core\Entity\EntityTypeManagerInterface;
+-use Drupal\Core\Entity\ContentEntityTypeInterface;
+ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+ use Drupal\rules\Core\RulesConditionBase;
+ use Symfony\Component\DependencyInjection\ContainerInterface;
+diff --git a/src/Plugin/Condition/EntityIsOfType.php b/src/Plugin/Condition/EntityIsOfType.php
+index 79175e8..ec999c3 100644
+--- a/src/Plugin/Condition/EntityIsOfType.php
++++ b/src/Plugin/Condition/EntityIsOfType.php
+@@ -2,9 +2,9 @@
+ 
+ namespace Drupal\rules\Plugin\Condition;
+ 
++use Drupal\Core\Entity\ContentEntityTypeInterface;
+ use Drupal\Core\Entity\EntityInterface;
+ use Drupal\Core\Entity\EntityTypeManagerInterface;
+-use Drupal\Core\Entity\ContentEntityTypeInterface;
+ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+ use Drupal\rules\Core\RulesConditionBase;
+ use Symfony\Component\DependencyInjection\ContainerInterface;
+diff --git a/tests/src/Functional/ConfigureAndExecuteTest.php b/tests/src/Functional/ConfigureAndExecuteTest.php
+index 8b4deed..4e858ce 100644
+--- a/tests/src/Functional/ConfigureAndExecuteTest.php
++++ b/tests/src/Functional/ConfigureAndExecuteTest.php
+@@ -14,7 +14,7 @@ class ConfigureAndExecuteTest extends RulesBrowserTestBase {
+    *
+    * @var array
+    */
+-  public static $modules = ['node', 'rules', 'comment'];
++  public static $modules = ['node', 'rules', 'comment', 'ban'];
+ 
+   /**
+    * We use the minimal profile because we want to test local action links.
+@@ -339,10 +339,16 @@ class ConfigureAndExecuteTest extends RulesBrowserTestBase {
+     return [
+ 
+     /* rules_ban_ip fails interactively and in tests with same error:
+-         You have requested a non-existent service "ban.ip_manager
+-       'Ban ip address' => [
++       You have requested a non-existent service "request".
++       @see https://www.drupal.org/project/rules/issues/2922804
++       The test data can be uncommented when this issue has been fixed.
++     */
++    /*
++      'Ban ip address' => [
+         'rules_ban_ip',
+-        'Ban IP',
++        'Ban an IP address',
++        [],
++        ['context[ip][setting]' => ''],
+       ],
+      */
+ 

@@ -1,0 +1,288 @@
+diff --git a/src/Form/Expression/ContextFormTrait.php b/src/Form/Expression/ContextFormTrait.php
+index 1140520..e4aab12 100644
+--- a/src/Form/Expression/ContextFormTrait.php
++++ b/src/Form/Expression/ContextFormTrait.php
+@@ -51,26 +51,18 @@ trait ContextFormTrait {
+     else {
+       $default_value = $context_definition->getDefaultValue();
+     }
+-    if ($mode == 'input' && !is_null($configuration['list_options']) && !empty($configuration['list_options'])) {
+-      $form['context'][$context_name]['setting'] = [
+-        '#type' => 'select',
+-        '#title' => $title,
+-        '#required' => $context_definition->isRequired(),
+-        '#default_value' => $default_value,
+-        '#options' => $configuration['list_options'],
+-      ];
+-    }
+-    else {
+-      $form['context'][$context_name]['setting'] = [
+-        '#type' => 'textfield',
+-        '#title' => $title,
+-        '#required' => $context_definition->isRequired(),
+-        '#default_value' => $default_value,
+-      ];
+-    }
++    // Set initial values for the input field.
++    $form['context'][$context_name]['setting'] = [
++      '#type' => 'textfield',
++      '#title' => $title,
++      '#required' => $context_definition->isRequired(),
++      '#default_value' => $default_value,
++      '#multiple' => $context_definition->isMultiple(),
++    ];
+ 
+     $element = &$form['context'][$context_name]['setting'];
+ 
++    // Modify the element if doing data selection.
+     if ($mode == 'selector') {
+       $element['#description'] = $this->t("The data selector helps you drill down into the data available to Rules. <em>To make entity fields appear in the data selector, you may have to use the condition 'entity has field' (or 'content is of type').</em> More useful tips about data selection is available in <a href=':url'>the online documentation</a>.", [
+         ':url' => 'https://www.drupal.org/node/1300042',
+@@ -81,16 +73,25 @@ trait ContextFormTrait {
+       $element['#attributes']['data-autocomplete-path'] = $url->toString();
+       $element['#attached']['library'][] = 'rules/rules.autocomplete';
+     }
+-    elseif ($context_definition->isMultiple() && $element['#type'] !== 'select') {
++    // Modify the element if it is a selection list.
++    elseif (!empty($configuration['list_options'])) {
++      $element['#type'] = 'select';
++      $element['#options'] = $configuration['list_options'];
++      $element['#description'] = $element['#multiple'] ? $this->t('Select any number of values.') : $this->t('Select a value from the list.');
++    }
++    // Modify the element to allow multiple text entries using textarea.
++    elseif ($context_definition->isMultiple()) {
+       $element['#type'] = 'textarea';
+-      // @todo get a description for possible values that can be filled in.
+       $element['#description'] = $this->t('Enter one value per line for this multi-valued context.');
+-
+       // Glue the list of values together as one item per line in the text area.
+       if (is_array($default_value)) {
+         $element['#default_value'] = implode("\n", $default_value);
+       }
+     }
++    // The element is a simple single entry text field.
++    else {
++      $element['#description'] = $this->t('Enter the value directly.');
++    }
+ 
+     $value = $mode == 'selector' ? $this->t('Switch to the direct input mode') : $this->t('Switch to data selection');
+     $form['context'][$context_name]['switch_button'] = [
+@@ -124,10 +125,16 @@ trait ContextFormTrait {
+         $context_config->map($context_name, $value['setting']);
+       }
+       else {
+-        // Each line of the textarea is one value for multiple contexts.
+         if ($context_definitions[$context_name]->isMultiple()) {
+-          $values = explode("\n", $value['setting']);
+-          $context_config->setValue($context_name, $values);
++          if (!empty($context_definitions[$context_name]->getListOptionsCallback())) {
++            // This is a select list with multiple values allowed.
++            $context_config->setValue($context_name, array_keys($value['setting']));
++          }
++          else {
++            // Each line of the textarea is one value for multiple contexts.
++            $values = explode("\n", $value['setting']);
++            $context_config->setValue($context_name, $values);
++          }
+         }
+         else {
+           $context_config->setValue($context_name, $value['setting']);
+diff --git a/src/Plugin/Condition/EntityHasField.php b/src/Plugin/Condition/EntityHasField.php
+index 2f51503..03f5cd7 100644
+--- a/src/Plugin/Condition/EntityHasField.php
++++ b/src/Plugin/Condition/EntityHasField.php
+@@ -62,6 +62,8 @@ class EntityHasField extends RulesConditionBase {
+         $options[$field_name] = $field_name;
+       }
+     }
++    // Sort the field names for ease of locating and selecting.
++    asort($options);
+ 
+     return $options;
+   }
+diff --git a/src/Plugin/Condition/UserHasEntityFieldAccess.php b/src/Plugin/Condition/UserHasEntityFieldAccess.php
+index a0bdf2e..6c7d3e0 100644
+--- a/src/Plugin/Condition/UserHasEntityFieldAccess.php
++++ b/src/Plugin/Condition/UserHasEntityFieldAccess.php
+@@ -17,18 +17,23 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
+  *   label = @Translation("User has entity field access"),
+  *   category = @Translation("User"),
+  *   context = {
++ *     "user" = @ContextDefinition("entity:user",
++ *       label = @Translation("User")
++ *     ),
+  *     "entity" = @ContextDefinition("entity",
+  *       label = @Translation("Entity")
+  *     ),
+  *     "field" = @ContextDefinition("string",
+- *       label = @Translation("Field")
++ *       label = @Translation("Field"),
++ *       description = @Translation("The name of the field to check."),
++ *       list_options_callback = "fieldListOptions"
+  *     ),
+  *     "operation" = @ContextDefinition("string",
+- *       label = @Translation("Operation")
++ *       label = @Translation("Operation"),
++ *       description = @Translation("The access to check for."),
++ *       list_options_callback = "accessListOptions",
++ *       default_value = "view",
+  *     ),
+- *     "user" = @ContextDefinition("entity:user",
+- *       label = @Translation("User")
+- *     )
+  *   }
+  * )
+  *
+@@ -75,6 +80,8 @@ class UserHasEntityFieldAccess extends RulesConditionBase implements ContainerFa
+   /**
+    * Evaluate if the user has access to the field of an entity.
+    *
++   * @param \Drupal\Core\Session\AccountInterface $user
++   *   The user account to test access against.
+    * @param \Drupal\Core\Entity\ContentEntityInterface $entity
+    *   The entity to check access on.
+    * @param string $field
+@@ -82,13 +89,11 @@ class UserHasEntityFieldAccess extends RulesConditionBase implements ContainerFa
+    * @param string $operation
+    *   The operation access should be checked for. Usually one of "view" or
+    *   "edit".
+-   * @param \Drupal\Core\Session\AccountInterface $user
+-   *   The user account to test access against.
+    *
+    * @return bool
+    *   TRUE if the user has access to the field on the entity, FALSE otherwise.
+    */
+-  protected function doEvaluate(ContentEntityInterface $entity, $field, $operation, AccountInterface $user) {
++  protected function doEvaluate(AccountInterface $user, ContentEntityInterface $entity, $field, $operation) {
+     if (!$entity->hasField($field)) {
+       return FALSE;
+     }
+@@ -103,4 +108,38 @@ class UserHasEntityFieldAccess extends RulesConditionBase implements ContainerFa
+     return $access->fieldAccess($operation, $definition, $user, $items);
+   }
+ 
++  /**
++   * Returns all the available fields in the system.
++   *
++   * @return array
++   *   An array of field names keyed on the field name.
++   */
++  public static function fieldListOptions() {
++    $options = [];
++
++    // Load all the fields in the system.
++    $fields = \Drupal::service('entity_field.manager')->getFieldMap();
++
++    // Add each field to our options array.
++    foreach ($fields as $entity_fields) {
++      foreach ($entity_fields as $field_name => $field) {
++        $options[$field_name] = $field_name;
++      }
++    }
++    // Sort the field names for ease of locating and selecting.
++    asort($options);
++
++    return $options;
++  }
++
++  /**
++   * Returns the types of field access to check for.
++   *
++   * @return array
++   *   An array of access types.
++   */
++  public static function accessListOptions() {
++    return ['view' => t('View'), 'edit' => t('Edit')];
++  }
++
+ }
+diff --git a/src/Plugin/Condition/UserHasRole.php b/src/Plugin/Condition/UserHasRole.php
+index 45058e6..dacfe88 100644
+--- a/src/Plugin/Condition/UserHasRole.php
++++ b/src/Plugin/Condition/UserHasRole.php
+@@ -23,9 +23,10 @@ use Drupal\user\UserInterface;
+  *       list_options_callback = "userRolesListOptions"
+  *     ),
+  *     "operation" = @ContextDefinition("string",
+- *       label = @Translation("Match roles"),
+- *       description = @Translation("If matching against all selected roles, the user must have <em>all</em> the roles selected."),
++ *       label = @Translation("Matching multiple roles"),
++ *       description = @Translation("Specify if the user must have <em>all</em> the roles selected or <em>any</em> of the roles selected."),
+  *       default_value = "AND",
++ *       list_options_callback = "operationListOptions",
+  *       required = FALSE
+  *     )
+  *   }
+@@ -78,4 +79,17 @@ class UserHasRole extends RulesConditionBase {
+     return user_role_names(TRUE);
+   }
+ 
++  /**
++   * Returns an array of role matching options.
++   *
++   * @return array
++   *   An array of logic operations for multiple role matching.
++   */
++  public static function operationListOptions() {
++    return [
++      'AND' => 'All selected roles (and)',
++      'OR' => 'Any selected role (or)',
++    ];
++  }
++
+ }
+diff --git a/tests/src/Functional/ConfigureAndExecuteTest.php b/tests/src/Functional/ConfigureAndExecuteTest.php
+index 3d5d2c1..8b4deed 100644
+--- a/tests/src/Functional/ConfigureAndExecuteTest.php
++++ b/tests/src/Functional/ConfigureAndExecuteTest.php
+@@ -266,13 +266,13 @@ class ConfigureAndExecuteTest extends RulesBrowserTestBase {
+           'context[entity][setting]' => 'something',
+           'context[field][setting]' => 'mail',
+           'context[user][setting]' => 'someone',
+-          'context[operation][setting]' => 'view',
+         ],
++        ['context[operation][setting]' => 'view'],
+       ],
+       'User has role' => [
+         'rules_user_has_role',
+         'User has role',
+-        ['context[user][setting]' => 'someone', 'context[roles][setting]' => 'authenticated'],
++        ['context[user][setting]' => 'someone', 'context[roles][setting][]' => 'authenticated'],
+         ['operation' => 'AND'],
+       ],
+       'User is blocked' => [
+@@ -356,15 +356,24 @@ class ConfigureAndExecuteTest extends RulesBrowserTestBase {
+          'context[entity_id][setting]' => '5']
+       ],
+      */
++      // Content.
+       'Add node' => [
+         'rules_entity_create:node',
+         'Create a new content',
+         ['context[type][setting]' => 'article', 'context[title][setting]' => 'Cakes'],
+       ],
++      // System.
++      'Display system message' => [
++        'rules_system_message',
++        'Show a message on the site',
++        ['context[message][setting]' => 'Here is the news', 'context[type][setting]' => 'status'],
++        ['context[repeat][setting]' => 'no'],
++      ],
++      // User.
+       'User - Add Role' => [
+         'rules_user_role_add',
+         'Add user role',
+-        ['context[user][setting]' => 'someone', 'context[roles][setting]' => 'authenticated'],
++        ['context[user][setting]' => 'someone', 'context[roles][setting][]' => 'authenticated'],
+       ],
+       'User - Block' => [
+         'rules_user_block',
+@@ -374,7 +383,7 @@ class ConfigureAndExecuteTest extends RulesBrowserTestBase {
+       'User - Remove Role' => [
+         'rules_user_role_remove',
+         'Remove user role',
+-        ['context[user][setting]' => 'someone', 'context[roles][setting]' => 'authenticated'],
++        ['context[user][setting]' => 'someone', 'context[roles][setting][]' => 'authenticated'],
+       ],
+ 
+     ];
