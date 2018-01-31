@@ -1,5 +1,4 @@
-Demo 1.1
-On January 31, 2018
+Demo 1.1 on January 31, 2018
 
 Eng. Marlon Ulate. Drupal Site Developer
 
