@@ -2,7 +2,7 @@ Demo 1.1 on January 31, 2018
 
 Eng. Marlon Ulate. Drupal Site Developer
 
-Drupal 8 CMS. Content Managegement System.
+Drupal 8 CMS. Content Management System.
 
 CMS and E-Commerce store which sells memberships to clients and after being purchased licensed user will be allowed to access specific content or stream event.
 
